@@ -85,7 +85,9 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     },
     /** Rejects failed or stripped host updates so the diff writer cannot acknowledge preferences the host never received. */
     setWithAck: async (updates) => {
-      const next = mergeWebUIState(readLocalWebUIState(), updates)
+      // Failed checklist actions must not reappear through the offline cache after reopening Settings.
+      const { setupGuideSettingsDismissed, ...optimisticUpdates } = updates
+      const next = mergeWebUIState(readLocalWebUIState(), optimisticUpdates)
       writeJson(UI_STORAGE_KEY, next)
       zoomLevel = next.uiZoomLevel
       const { environmentId, hostUpdates } = prepareHostUpdates(updates)
@@ -96,6 +98,15 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
         hostUpdates.explorerDisplayRootByWorktree === undefined
       ) {
         throw new Error('Explorer root preference is pending host support')
+      }
+      if (
+        setupGuideSettingsDismissed !== undefined &&
+        environmentId === requireActiveEnvironmentOrNull()?.id
+      ) {
+        writeJson(
+          UI_STORAGE_KEY,
+          mergeWebUIState(readLocalWebUIState(), { setupGuideSettingsDismissed })
+        )
       }
     },
     recordFeatureInteraction: async (id: FeatureInteractionId) => {
