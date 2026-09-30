@@ -1,5 +1,6 @@
 import { EyeOff, RefreshCw, RotateCcw } from 'lucide-react'
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { toast } from 'sonner'
 import {
   getFeatureWallSetupSteps,
   getFirstIncompleteFeatureWallSetupStepId
@@ -85,6 +86,12 @@ export function SettingsSetupGuidePane(): React.JSX.Element {
       setChecklistVisibilityLoaded(true)
     } catch (error) {
       console.error('Failed to update onboarding checklist visibility:', error)
+      toast.error(
+        translate(
+          'auto.components.settings.SettingsSetupGuidePane.saveFailedDescription',
+          'Could not save checklist visibility. Try again.'
+        )
+      )
     } finally {
       setDismissalUpdating(false)
     }
@@ -162,8 +169,8 @@ export function SettingsSetupGuidePane(): React.JSX.Element {
   }
 
   return (
-    <div className="h-[min(740px,calc(100vh-14rem))] min-h-[540px] px-7 py-6">
-      <div className="mb-4 flex justify-end">
+    <div className="flex h-[min(740px,calc(100vh-14rem))] min-h-[540px] flex-col px-7 py-6">
+      <div className="mb-4 flex shrink-0 justify-end">
         <Button
           type="button"
           variant="ghost"
@@ -178,14 +185,16 @@ export function SettingsSetupGuidePane(): React.JSX.Element {
           )}
         </Button>
       </div>
-      <FeatureWallSetupChecklist
-        layout="embedded"
-        activeStep={activeStep}
-        progress={progress}
-        onSelectStep={handleSelectStep}
-        onOrchestrationSkillInstalledChange={setOrchestrationSkillInstalled}
-        onBrowserUseSkillInstalledChange={setBrowserUseSkillInstalled}
-      />
+      <div className="min-h-0 flex-1">
+        <FeatureWallSetupChecklist
+          layout="embedded"
+          activeStep={activeStep}
+          progress={progress}
+          onSelectStep={handleSelectStep}
+          onOrchestrationSkillInstalledChange={setOrchestrationSkillInstalled}
+          onBrowserUseSkillInstalledChange={setBrowserUseSkillInstalled}
+        />
+      </div>
     </div>
   )
 }

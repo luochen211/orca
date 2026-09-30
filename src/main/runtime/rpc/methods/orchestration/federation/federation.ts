@@ -1,5 +1,9 @@
 import type { TuiAgent } from '../../../../../../shared/tui-agent'
-import { buildDispatchPreamble } from '../../../../orchestration/preamble'
+import { describeTerminalWaitBlockedReason } from '../../../../../../shared/terminal-wait-blocked-reason-legacy-alias'
+import {
+  buildDispatchPreamble,
+  dispatchPreambleSendOptions
+} from '../../../../orchestration/preamble'
 import { OrchestrationError } from '../../../../orchestration/orchestration-error'
 import { defineMethod } from '../../../core'
 import { assertOrchestrationWorktreeCreationSupported } from '../worker/folder-worktree-placement'
@@ -110,6 +114,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
             observeSetupCompletion: true,
             createdWithAgent: agent as TuiAgent,
             startupAgent: agent as TuiAgent,
+            startupLaunchSource: 'orchestration',
             ...(launch.preferences ? { startupLaunchPreferences: launch.preferences } : {}),
             activate: false,
             lineage: { noParent: true }
@@ -181,6 +186,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
               // Why: agent ids are not shell commands (`cursor` is the desktop app,
               // its CLI is `cursor-agent`); resolve through the TUI agent config.
               startupAgent: agent as TuiAgent,
+              launchSource: 'orchestration',
               ...(launch.preferences ? { launchPreferences: launch.preferences } : {}),
               title: `worker-${params.taskId}`,
               presentation: 'background'
@@ -222,7 +228,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
           }
           throw new Error(
             wait.blockedReason
-              ? `Agent startup blocked: ${wait.blockedReason}`
+              ? `Agent startup blocked: ${describeTerminalWaitBlockedReason(wait.blockedReason)}`
               : `Agent did not become ready (${wait.status}).`
           )
         }
@@ -260,11 +266,7 @@ export const ORCHESTRATION_FEDERATION_ATTACH_METHODS = [
             canDispatchSubWorkers: (params.depth ?? 1) < runtime.getNestedWorkerMaxDepth(),
             cliCommand: runtime.getTerminalOrchestrationCliCommand(terminalHandle)
           }),
-          {
-            acceptQueued: true,
-            observationTimeoutMs: 0,
-            requestId: orchestrationMutation.requestId
-          }
+          dispatchPreambleSendOptions(orchestrationMutation.requestId)
         )
         effects.push({
           kind: 'dispatch_input',

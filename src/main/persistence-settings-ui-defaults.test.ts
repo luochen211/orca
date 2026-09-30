@@ -1,22 +1,20 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
-import { rmSync, mkdtempSync } from 'node:fs'
-import { join } from 'node:path'
-import { tmpdir } from 'node:os'
 import { normalizeLoadedUiState } from './persistence/loading-store/normalize-loaded-ui-state'
-import type { GlobalSettings } from '../shared/global-settings-types'
-import type { PersistedState } from '../shared/persisted-state-types'
 import {
-  getDefaultPersistedState,
-  ONBOARDING_FINAL_STEP,
-  ONBOARDING_FLOW_VERSION
-} from '../shared/constants'
-import {
+  closeTestStores,
   testState,
   createStore,
   withPlatform,
   writeDataFile,
   readDataFile
 } from './persistence-test-harness'
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest'
+import { rmSync, mkdtempSync } from 'node:fs'
+import { join } from 'node:path'
+import { tmpdir } from 'node:os'
+import type { GlobalSettings } from '../shared/global-settings-types'
+import type { PersistedState } from '../shared/persisted-state-types'
+import { getDefaultPersistedState } from '../shared/constants'
+import { ONBOARDING_FINAL_STEP, ONBOARDING_FLOW_VERSION } from '../shared/onboarding-defaults'
 
 // Stub the ~/.ssh/config parser so the SSH-import test drives the real Store with deterministic hosts, not the operator's actual ~/.ssh/config.
 const { loadUserSshConfigMock, sshConfigHostsToTargetsMock } = vi.hoisted(() => ({
@@ -66,7 +64,8 @@ describe('Store', () => {
     getCohortAtEmitMock.mockReturnValue({ nth_repo_added: 2 })
   })
 
-  afterEach(() => {
+  afterEach(async () => {
+    await closeTestStores()
     rmSync(testState.dir, { recursive: true, force: true })
   })
   it('returns default settings when no data file exists', async () => {
@@ -335,6 +334,30 @@ describe('Store', () => {
     expect(store.getUI().setupGuideSidebarDismissed).toBe(true)
     expect(store.getUI().setupGuideBrowserMilestoneMigrated).toBe(false)
     expect(store.getUI().setupGuideBrowserMilestoneLegacyComplete).toBe(false)
+  })
+
+  it('remembers hiding and restoring the Settings checklist across store reloads', async () => {
+    const store = await createStore()
+    const onboarding = store.getOnboarding()
+    const sidebarDismissed = store.getUI().setupGuideSidebarDismissed
+    expect(store.getUI().setupGuideSettingsDismissed).toBe(false)
+
+    store.updateUI({ setupGuideSettingsDismissed: true })
+    store.flush()
+    await closeTestStores()
+
+    const hidden = await createStore()
+    expect(hidden.getUI().setupGuideSettingsDismissed).toBe(true)
+    expect(hidden.getOnboarding()).toEqual(onboarding)
+    expect(hidden.getUI().setupGuideSidebarDismissed).toBe(sidebarDismissed)
+    hidden.updateUI({ setupGuideSettingsDismissed: false })
+    hidden.flush()
+    await closeTestStores()
+
+    const restored = await createStore()
+    expect(restored.getUI().setupGuideSettingsDismissed).toBe(false)
+    expect(restored.getOnboarding()).toEqual(onboarding)
+    expect(restored.getUI().setupGuideSidebarDismissed).toBe(sidebarDismissed)
   })
 
   it('migrates a previously dismissed onboarding checklist to the Settings preference', async () => {
