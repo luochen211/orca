@@ -81,7 +81,8 @@ export function SettingsSetupGuidePane(): React.JSX.Element {
     dismissalIntentRef.current = dismissed
     setDismissalUpdating(true)
     try {
-      await window.api.ui.set({ setupGuideSettingsDismissed: dismissed })
+      const save = window.api.ui.setWithAck ?? window.api.ui.set
+      await save({ setupGuideSettingsDismissed: dismissed })
       setChecklistHidden(dismissed)
       setChecklistVisibilityLoaded(true)
     } catch (error) {

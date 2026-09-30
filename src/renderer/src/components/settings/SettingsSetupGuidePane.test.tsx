@@ -165,4 +165,42 @@ describe('SettingsSetupGuidePane', () => {
     expect(getUI).toHaveBeenCalledTimes(2)
     expect(setUI).not.toHaveBeenCalled()
   })
+
+  it.each([
+    { dismissed: false, action: 'Hide checklist' },
+    { dismissed: true, action: 'Show checklist' }
+  ])('requires host acknowledgement when saving "$action"', async ({ dismissed, action }) => {
+    getUI.mockResolvedValue({ setupGuideSettingsDismissed: dismissed })
+    const retry = deferred<void>()
+    const setWithAck = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('Host unavailable'))
+      .mockReturnValueOnce(retry.promise)
+    Object.assign(window.api.ui, { setWithAck })
+    render(<SettingsSetupGuidePane />)
+    const button = await screen.findByRole<HTMLButtonElement>('button', { name: action })
+
+    fireEvent.click(button)
+
+    await waitFor(() => expect(button.disabled).toBe(false))
+    expect(setWithAck).toHaveBeenCalledWith({ setupGuideSettingsDismissed: !dismissed })
+    expect(toastError).toHaveBeenCalledWith('Could not save checklist visibility. Try again.')
+    expect(screen.getByRole('button', { name: action })).toBe(button)
+    expect(screen.queryByRole('region', { name: 'Setup steps' }) !== null).toBe(!dismissed)
+    expect(setUI).not.toHaveBeenCalled()
+
+    fireEvent.click(button)
+    expect(button.disabled).toBe(true)
+    expect(screen.queryByRole('region', { name: 'Setup steps' }) !== null).toBe(!dismissed)
+
+    await act(async () => {
+      retry.resolve()
+    })
+
+    expect(
+      screen.getByRole('button', { name: dismissed ? 'Hide checklist' : 'Show checklist' })
+    ).toBeTruthy()
+    expect(setWithAck).toHaveBeenCalledTimes(2)
+    expect(setUI).not.toHaveBeenCalled()
+  })
 })
