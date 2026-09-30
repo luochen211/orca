@@ -1,6 +1,9 @@
 import type { ElectronApplication, Page } from '@stablyai/playwright-test'
+import { writeFileSync } from 'node:fs'
+import path from 'node:path'
 import { expect, test } from './helpers/orca-app'
 import { createRestartSession } from './helpers/orca-restart'
+import { getE2ECompletedOnboardingProfile } from './helpers/e2e-completed-onboarding-profile'
 import { dismissTransientAnnouncement } from './helpers/ssh-config-host-picker'
 import { waitForSessionReady } from './helpers/store'
 
@@ -42,6 +45,19 @@ test('remembers hidden and restored Settings checklist across restarts', async (
 {}, testInfo) => {
   test.setTimeout(300_000)
   const session = createRestartSession(testInfo, { ORCA_BACKGROUND_LAUNCH: '1' })
+  const profile = getE2ECompletedOnboardingProfile()
+  writeFileSync(
+    path.join(session.userDataDir, 'orca-data.json'),
+    JSON.stringify({
+      ...profile,
+      ui: {
+        ...profile.ui,
+        featureInteractions: {},
+        setupGuideBrowserMilestoneMigrated: true,
+        setupGuideBrowserMilestoneLegacyComplete: false
+      }
+    })
+  )
   let activeApp: ElectronApplication | null = null
 
   try {
@@ -49,6 +65,7 @@ test('remembers hidden and restored Settings checklist across restarts', async (
     activeApp = first.app
     await openSetupGuideSettings(first.page)
     await expectChecklistVisible(first.page)
+    await expect(first.page.getByText('0/2', { exact: true })).toBeVisible()
     await testInfo.attach('checklist-shown', {
       body: await first.page.screenshot({ path: testInfo.outputPath('checklist-shown.png') }),
       contentType: 'image/png'
@@ -77,6 +94,7 @@ test('remembers hidden and restored Settings checklist across restarts', async (
     activeApp = third.app
     await openSetupGuideSettings(third.page)
     await expectChecklistVisible(third.page)
+    await expect(third.page.getByText('0/2', { exact: true })).toBeVisible()
     await testInfo.attach('checklist-restored-after-restart', {
       body: await third.page.screenshot({
         path: testInfo.outputPath('checklist-restored-after-restart.png')

@@ -376,7 +376,7 @@ describe('Store', () => {
 
     expect(store.getUI().setupGuideSettingsDismissed).toBe(true)
     store.flush()
-    expect((readDataFile() as PersistedState).ui?.setupGuideSettingsDismissed).toBe(true)
+    expect(readDataFile()).toMatchObject({ ui: { setupGuideSettingsDismissed: true } })
   })
 
   it('preserves an explicit Settings preference over the legacy checklist dismissal', async () => {
@@ -406,6 +406,7 @@ describe('Store', () => {
       const repaired = normalizeLoadedUiState(
         {
           ...defaults,
+          // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: malformed persisted values intentionally exercise load-time repair.
           ui: { ...defaults.ui, setupGuideSettingsDismissed: raw as unknown as boolean }
         },
         defaults,
@@ -418,6 +419,7 @@ describe('Store', () => {
       expect(repairSave.mock.calls.length).toBeGreaterThan(baselineSave.mock.calls.length)
       const initial = await createStore()
       initial.flush()
+      // oxlint-disable-next-line typescript/consistent-type-assertions -- SAFETY: the Store just wrote this complete profile before one field is corrupted.
       const settled = readDataFile() as PersistedState
       writeDataFile({
         ...settled,
@@ -427,7 +429,7 @@ describe('Store', () => {
       const store = await createStore()
       expect(store.getUI().setupGuideSettingsDismissed).toBe(false)
       store.flush()
-      expect((readDataFile() as PersistedState).ui.setupGuideSettingsDismissed).toBe(false)
+      expect(readDataFile()).toMatchObject({ ui: { setupGuideSettingsDismissed: false } })
     }
   )
 
