@@ -17,6 +17,16 @@ beforeEach(() => {
   runtime.id = 'checklist-host'
 })
 
+function deferNextAcknowledgement(): () => void {
+  let acknowledge!: () => void
+  runtime.call.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      acknowledge = resolve
+    })
+  )
+  return acknowledge
+}
+
 it.each([false, true])(
   'keeps the acknowledged checklist choice after failure and offline remount (dismissed: %j)',
   async (dismissed) => {
@@ -119,3 +129,83 @@ it.each([false, true])(
     })
   }
 )
+
+it.each([false, true])(
+  'preserves a newer same-value host refresh from another API instance (dismissed: %j)',
+  async (dismissed) => {
+    const hostState = { ...getDefaultUIState(), setupGuideSettingsDismissed: dismissed }
+    runtime.call.mockResolvedValueOnce({ ui: hostState })
+    const writingClient = createWebUiApi()
+    await writingClient.get()
+    const acknowledge = deferNextAcknowledgement()
+    const saving = writingClient.setWithAck!({ setupGuideSettingsDismissed: !dismissed })
+
+    runtime.call.mockResolvedValueOnce({ ui: hostState })
+    expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(dismissed)
+    acknowledge()
+    await saving
+
+    expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(dismissed)
+    expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(dismissed)
+  }
+)
+
+it('preserves the newer successful choice when two API instances acknowledge out of order', async () => {
+  runtime.call.mockResolvedValueOnce({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
+  })
+  const firstClient = createWebUiApi()
+  await firstClient.get()
+  const acknowledgeFirst = deferNextAcknowledgement()
+  const firstSave = firstClient.setWithAck!({ setupGuideSettingsDismissed: true })
+
+  const secondClient = createWebUiApi()
+  runtime.call.mockResolvedValueOnce({})
+  await secondClient.setWithAck!({ setupGuideSettingsDismissed: false })
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
+
+  acknowledgeFirst()
+  await firstSave
+
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
+  expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(false)
+})
+
+it('preserves checklist state refreshed by a feature interaction before an older acknowledgement', async () => {
+  const hostState = { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
+  runtime.call.mockResolvedValueOnce({ ui: hostState })
+  const ui = createWebUiApi()
+  await ui.get()
+  const acknowledge = deferNextAcknowledgement()
+  const saving = ui.setWithAck!({ setupGuideSettingsDismissed: false })
+
+  runtime.call.mockResolvedValueOnce({ ui: hostState })
+  const refreshed = await createWebUiApi().recordFeatureInteraction('tasks')
+  expect(refreshed.setupGuideSettingsDismissed).toBe(true)
+
+  acknowledge()
+  await saving
+
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
+  expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(true)
+})
+
+it('preserves a newer plain-set checklist choice before an older acknowledgement', async () => {
+  runtime.call.mockResolvedValueOnce({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
+  })
+  const ui = createWebUiApi()
+  await ui.get()
+  const acknowledge = deferNextAcknowledgement()
+  const saving = ui.setWithAck!({ setupGuideSettingsDismissed: true })
+
+  runtime.call.mockResolvedValueOnce({})
+  await createWebUiApi().set({ setupGuideSettingsDismissed: false })
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
+
+  acknowledge()
+  await saving
+
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
+  expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(false)
+})

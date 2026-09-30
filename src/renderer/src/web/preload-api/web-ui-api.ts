@@ -1,4 +1,8 @@
 import { createWebExplorerRootSync } from './web-explorer-root-sync'
+import {
+  advanceChecklistVisibilityRevision,
+  isCurrentChecklistVisibilityRevision
+} from './web-checklist-visibility-revision'
 import type { PreloadApi } from '../../../../preload/api-types'
 import { assertClipboardTextWithinLimitWithYield } from '../../../../shared/clipboard-text'
 import type { ReadClipboardTextOptions } from '../../../../shared/clipboard-text'
@@ -61,6 +65,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
             result.ui.contextualToursSeenIds
           )
         }
+        advanceChecklistVisibilityRevision(result.ui.setupGuideSettingsDismissed)
         writeJson(UI_STORAGE_KEY, next)
         zoomLevel = next.uiZoomLevel
         return next
@@ -71,6 +76,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     /** Persists locally first and attempts the host write without propagating offline failures to fire-and-forget callers. */
     set: async (updates) => {
       const next = mergeWebUIState(readLocalWebUIState(), updates)
+      advanceChecklistVisibilityRevision(updates.setupGuideSettingsDismissed)
       writeJson(UI_STORAGE_KEY, next)
       zoomLevel = next.uiZoomLevel
       // Why strip here too when the host also strips: an old host predating that strip would
@@ -87,6 +93,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     setWithAck: async (updates) => {
       // Failed checklist actions must not reappear through the offline cache after reopening Settings.
       const { setupGuideSettingsDismissed, ...optimisticUpdates } = updates
+      const checklistRevision = advanceChecklistVisibilityRevision(setupGuideSettingsDismissed)
       const next = mergeWebUIState(readLocalWebUIState(), optimisticUpdates)
       writeJson(UI_STORAGE_KEY, next)
       zoomLevel = next.uiZoomLevel
@@ -101,7 +108,8 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
       }
       if (
         setupGuideSettingsDismissed !== undefined &&
-        environmentId === requireActiveEnvironmentOrNull()?.id
+        environmentId === requireActiveEnvironmentOrNull()?.id &&
+        isCurrentChecklistVisibilityRevision(checklistRevision)
       ) {
         writeJson(
           UI_STORAGE_KEY,
@@ -142,6 +150,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
             result.ui.contextualToursSeenIds
           )
         }
+        advanceChecklistVisibilityRevision(result.ui.setupGuideSettingsDismissed)
         writeJson(UI_STORAGE_KEY, next)
         zoomLevel = next.uiZoomLevel
         return next
