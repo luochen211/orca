@@ -1,7 +1,8 @@
 import { createWebExplorerRootSync } from './web-explorer-root-sync'
 import {
+  acceptChecklistVisibilityWrite,
   advanceChecklistVisibilityRevision,
-  isCurrentChecklistVisibilityRevision
+  beginChecklistVisibilityWrite
 } from './web-checklist-visibility-revision'
 import type { PreloadApi } from '../../../../preload/api-types'
 import { assertClipboardTextWithinLimitWithYield } from '../../../../shared/clipboard-text'
@@ -93,7 +94,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
     setWithAck: async (updates) => {
       // Failed checklist actions must not reappear through the offline cache after reopening Settings.
       const { setupGuideSettingsDismissed, ...optimisticUpdates } = updates
-      const checklistRevision = advanceChecklistVisibilityRevision(setupGuideSettingsDismissed)
+      const checklistWrite = beginChecklistVisibilityWrite(setupGuideSettingsDismissed)
       const next = mergeWebUIState(readLocalWebUIState(), optimisticUpdates)
       writeJson(UI_STORAGE_KEY, next)
       zoomLevel = next.uiZoomLevel
@@ -106,15 +107,19 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
       ) {
         throw new Error('Explorer root preference is pending host support')
       }
-      if (
-        setupGuideSettingsDismissed !== undefined &&
-        environmentId === requireActiveEnvironmentOrNull()?.id &&
-        isCurrentChecklistVisibilityRevision(checklistRevision)
-      ) {
-        writeJson(
-          UI_STORAGE_KEY,
-          mergeWebUIState(readLocalWebUIState(), { setupGuideSettingsDismissed })
-        )
+      try {
+        if (
+          setupGuideSettingsDismissed !== undefined &&
+          environmentId === requireActiveEnvironmentOrNull()?.id &&
+          acceptChecklistVisibilityWrite(checklistWrite)
+        ) {
+          writeJson(
+            UI_STORAGE_KEY,
+            mergeWebUIState(readLocalWebUIState(), { setupGuideSettingsDismissed })
+          )
+        }
+      } catch {
+        // A browser cache failure cannot undo the host's successful save.
       }
     },
     recordFeatureInteraction: async (id: FeatureInteractionId) => {

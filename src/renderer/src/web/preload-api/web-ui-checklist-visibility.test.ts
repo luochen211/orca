@@ -2,6 +2,7 @@
 import { beforeEach, expect, it, vi } from 'vitest'
 import { getDefaultUIState } from '../../../../shared/constants'
 import { readLocalWebUIState } from './web-preferences-store'
+import { UI_STORAGE_KEY } from './web-storage'
 import { createWebUiApi } from './web-ui-api'
 
 const runtime = vi.hoisted(() => ({ call: vi.fn(), id: 'checklist-host' }))
@@ -208,4 +209,75 @@ it('preserves a newer plain-set checklist choice before an older acknowledgement
 
   expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
   expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(false)
+})
+
+it.each([
+  { dismissed: false, newerFailsFirst: true },
+  { dismissed: true, newerFailsFirst: true },
+  { dismissed: false, newerFailsFirst: false },
+  { dismissed: true, newerFailsFirst: false }
+])(
+  'caches an accepted save when the newer save fails (dismissed: $dismissed, failure first: $newerFailsFirst)',
+  async ({ dismissed, newerFailsFirst }) => {
+    runtime.call.mockResolvedValueOnce({
+      ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: dismissed }
+    })
+    const firstClient = createWebUiApi()
+    await firstClient.get()
+    const acknowledgeFirst = deferNextAcknowledgement()
+    const firstSave = firstClient.setWithAck!({ setupGuideSettingsDismissed: !dismissed })
+    let rejectSecond!: (error: Error) => void
+    runtime.call.mockReturnValueOnce(
+      new Promise<void>((_resolve, reject) => {
+        rejectSecond = reject
+      })
+    )
+    const secondSave = createWebUiApi().setWithAck!({ setupGuideSettingsDismissed: dismissed })
+    const failure = expect(secondSave).rejects.toThrow('Newer save failed')
+
+    if (newerFailsFirst) {
+      rejectSecond(new Error('Newer save failed'))
+      await failure
+    }
+    acknowledgeFirst()
+    await firstSave
+    expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(!dismissed)
+    if (!newerFailsFirst) {
+      rejectSecond(new Error('Newer save failed'))
+      await failure
+    }
+
+    expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(!dismissed)
+    expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(!dismissed)
+  }
+)
+
+it('reports host acceptance even when caching the acknowledged checklist preference fails', async () => {
+  runtime.call.mockResolvedValueOnce({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
+  })
+  const ui = createWebUiApi()
+  await ui.get()
+  const acknowledge = deferNextAcknowledgement()
+  const saving = ui.setWithAck!({ setupGuideSettingsDismissed: true })
+  const originalSetItem = localStorage.setItem.bind(localStorage)
+  const cacheWrite = vi.spyOn(localStorage, 'setItem').mockImplementation((key, value) => {
+    if (key === UI_STORAGE_KEY) {
+      throw new Error('Storage quota exceeded')
+    }
+    originalSetItem(key, value)
+  })
+  try {
+    acknowledge()
+    await expect(saving).resolves.toBeUndefined()
+    expect(cacheWrite).toHaveBeenCalledWith(UI_STORAGE_KEY, expect.any(String))
+  } finally {
+    cacheWrite.mockRestore()
+  }
+
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
+  runtime.call.mockResolvedValueOnce({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
+  })
+  expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(true)
 })
