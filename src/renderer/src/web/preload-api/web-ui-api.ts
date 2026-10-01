@@ -2,8 +2,11 @@ import { createWebExplorerRootSync } from './web-explorer-root-sync'
 import {
   acceptChecklistVisibilityWrite,
   advanceChecklistVisibilityRevision,
-  beginChecklistVisibilityWrite
+  beginChecklistVisibilityObservation,
+  beginChecklistVisibilityWrite,
+  cancelChecklistVisibilityObservation
 } from './web-checklist-visibility-revision'
+import { mergeObservedHostUIState } from './web-checklist-visibility-host-state'
 import type { PreloadApi } from '../../../../preload/api-types'
 import { assertClipboardTextWithinLimitWithYield } from '../../../../shared/clipboard-text'
 import type { ReadClipboardTextOptions } from '../../../../shared/clipboard-text'
@@ -17,13 +20,7 @@ import {
   saveClipboardImageAsTempFileInRuntime,
   writeWebClipboardText
 } from './web-clipboard-api'
-import {
-  mergeContextualTourSeenIds,
-  mergeFeatureInteractionState,
-  mergeHostWebUIState,
-  mergeOsc52ClipboardNoticePending,
-  mergeWebUIState
-} from './web-preference-normalization'
+import { mergeWebUIState } from './web-preference-normalization'
 import { readLocalWebUIState } from './web-preferences-store'
 import { callRuntimeResult } from './web-runtime-calls'
 import { requireActiveEnvironmentOrNull } from './web-runtime-session'
@@ -43,34 +40,26 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
   return {
     /** Hydrates from the active host after replaying pending roots, falling back to local state on failure or host changes. */
     get: async () => {
+      const checklistObservation = beginChecklistVisibilityObservation()
       try {
         const environmentId = requireActiveEnvironmentOrNull()?.id
         const result = await callRuntimeResult<{ ui: PairedUiState }>('ui.get', undefined, 15_000)
         if (environmentId !== requireActiveEnvironmentOrNull()?.id) {
+          cancelChecklistVisibilityObservation(checklistObservation)
           return readLocalWebUIState()
         }
         await explorerRoots.read(environmentId, result.ui)
         if (environmentId !== requireActiveEnvironmentOrNull()?.id) {
+          cancelChecklistVisibilityObservation(checklistObservation)
           return readLocalWebUIState()
         }
         const local = readLocalWebUIState()
-        const next = {
-          ...mergeHostWebUIState(local, result.ui),
-          osc52ClipboardDefaultOnNoticePending: mergeOsc52ClipboardNoticePending(local, result.ui),
-          featureInteractions: mergeFeatureInteractionState(
-            local.featureInteractions,
-            result.ui.featureInteractions
-          ),
-          contextualToursSeenIds: mergeContextualTourSeenIds(
-            local.contextualToursSeenIds,
-            result.ui.contextualToursSeenIds
-          )
-        }
-        advanceChecklistVisibilityRevision(result.ui.setupGuideSettingsDismissed)
+        const next = mergeObservedHostUIState(local, result.ui, checklistObservation)
         writeJson(UI_STORAGE_KEY, next)
         zoomLevel = next.uiZoomLevel
         return next
       } catch {
+        cancelChecklistVisibilityObservation(checklistObservation)
         return readLocalWebUIState()
       }
     },
@@ -111,7 +100,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
         if (
           setupGuideSettingsDismissed !== undefined &&
           environmentId === requireActiveEnvironmentOrNull()?.id &&
-          acceptChecklistVisibilityWrite(checklistWrite)
+          acceptChecklistVisibilityWrite(checklistWrite, setupGuideSettingsDismissed)
         ) {
           writeJson(
             UI_STORAGE_KEY,
@@ -123,6 +112,7 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
       }
     },
     recordFeatureInteraction: async (id: FeatureInteractionId) => {
+      const checklistObservation = beginChecklistVisibilityObservation()
       const current = readLocalWebUIState()
       const featureInteractions = normalizeFeatureInteractions(current.featureInteractions)
       const existing = featureInteractions[id]
@@ -143,23 +133,12 @@ export function createWebUiApi(): NonNullable<Partial<PreloadApi>['ui']> {
           15_000
         )
         const local = readLocalWebUIState()
-        const next = {
-          ...mergeHostWebUIState(local, result.ui),
-          osc52ClipboardDefaultOnNoticePending: mergeOsc52ClipboardNoticePending(local, result.ui),
-          featureInteractions: mergeFeatureInteractionState(
-            local.featureInteractions,
-            result.ui.featureInteractions
-          ),
-          contextualToursSeenIds: mergeContextualTourSeenIds(
-            local.contextualToursSeenIds,
-            result.ui.contextualToursSeenIds
-          )
-        }
-        advanceChecklistVisibilityRevision(result.ui.setupGuideSettingsDismissed)
+        const next = mergeObservedHostUIState(local, result.ui, checklistObservation)
         writeJson(UI_STORAGE_KEY, next)
         zoomLevel = next.uiZoomLevel
         return next
       } catch {
+        cancelChecklistVisibilityObservation(checklistObservation)
         return optimistic
       }
     },

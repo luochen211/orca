@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { beforeEach, expect, it, vi } from 'vitest'
 import { getDefaultUIState } from '../../../../shared/constants'
+import { beginChecklistVisibilityWrite } from './web-checklist-visibility-revision'
 import { readLocalWebUIState } from './web-preferences-store'
 import { UI_STORAGE_KEY } from './web-storage'
 import { createWebUiApi } from './web-ui-api'
@@ -172,6 +173,55 @@ it('preserves the newer successful choice when two API instances acknowledge out
   expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(false)
 })
 
+it('assigns distinct write revisions when two tabs read the same prior revision', () => {
+  const key = 'orca.web.checklistVisibilityRevision.v1'
+  const originalGetItem = localStorage.getItem.bind(localStorage)
+  let nested = false
+  const attempts: NonNullable<ReturnType<typeof beginChecklistVisibilityWrite>>[] = []
+  const getItem = vi.spyOn(localStorage, 'getItem').mockImplementation((requestedKey) => {
+    const snapshot = originalGetItem(requestedKey)
+    if (requestedKey === key && !nested) {
+      nested = true
+      const secondAttempt = beginChecklistVisibilityWrite(false)
+      if (secondAttempt) {
+        attempts.push(secondAttempt)
+      }
+      return snapshot
+    }
+    return snapshot
+  })
+
+  try {
+    const firstAttempt = beginChecklistVisibilityWrite(true)
+    expect(firstAttempt).not.toBeNull()
+    expect(attempts).toHaveLength(1)
+    expect(firstAttempt?.observation).toBe(attempts[0].observation)
+    expect(firstAttempt?.write).not.toBe(attempts[0].write)
+  } finally {
+    getItem.mockRestore()
+  }
+})
+
+it('does not let a host read dispatched before a save overwrite the saved choice', async () => {
+  let resolveRead!: (value: { ui: ReturnType<typeof getDefaultUIState> }) => void
+  runtime.call.mockReturnValueOnce(
+    new Promise((resolve) => {
+      resolveRead = resolve
+    })
+  )
+  const ui = createWebUiApi()
+  const reading = ui.get()
+
+  runtime.call.mockResolvedValueOnce({})
+  await ui.setWithAck!({ setupGuideSettingsDismissed: true })
+
+  resolveRead({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
+  })
+  expect((await reading).setupGuideSettingsDismissed).toBe(true)
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
+})
+
 it('preserves checklist state refreshed by a feature interaction before an older acknowledgement', async () => {
   const hostState = { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
   runtime.call.mockResolvedValueOnce({ ui: hostState })
@@ -252,7 +302,7 @@ it.each([
   }
 )
 
-it('reports host acceptance even when caching the acknowledged checklist preference fails', async () => {
+it('restores an acknowledged checklist preference after its UI cache write fails', async () => {
   runtime.call.mockResolvedValueOnce({
     ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
   })
@@ -275,9 +325,6 @@ it('reports host acceptance even when caching the acknowledged checklist prefere
     cacheWrite.mockRestore()
   }
 
-  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(false)
-  runtime.call.mockResolvedValueOnce({
-    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
-  })
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
   expect((await createWebUiApi().get()).setupGuideSettingsDismissed).toBe(true)
 })
