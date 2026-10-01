@@ -222,6 +222,24 @@ it('does not let a host read dispatched before a save overwrite the saved choice
   expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
 })
 
+it('keeps an acknowledged choice when a newer host read fails', async () => {
+  let rejectRead!: (error: Error) => void
+  runtime.call.mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      rejectRead = reject
+    })
+  )
+  const ui = createWebUiApi()
+  const reading = ui.get()
+
+  runtime.call.mockResolvedValueOnce({})
+  await ui.setWithAck!({ setupGuideSettingsDismissed: true })
+
+  rejectRead(new Error('Offline'))
+  expect((await reading).setupGuideSettingsDismissed).toBe(true)
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
+})
+
 it('preserves checklist state refreshed by a feature interaction before an older acknowledgement', async () => {
   const hostState = { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
   runtime.call.mockResolvedValueOnce({ ui: hostState })
