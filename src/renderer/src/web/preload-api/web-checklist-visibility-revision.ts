@@ -144,10 +144,7 @@ export function acceptChecklistVisibilityWrite(
     return false
   }
   const revision = readRevision()
-  if (
-    attempt.observation !== revision.observation ||
-    (revision.operation?.kind === 'observation' && revision.operation.issuedAt > attempt.issuedAt)
-  ) {
+  if (attempt.observation !== revision.observation) {
     return false
   }
   const applied = { id: attempt.write, issuedAt: attempt.issuedAt }

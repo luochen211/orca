@@ -240,6 +240,38 @@ it('keeps an acknowledged choice when a newer host read fails', async () => {
   expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
 })
 
+it('caches a successful save when a newer host read fails and Settings reopens offline', async () => {
+  runtime.call.mockResolvedValueOnce({
+    ui: { ...getDefaultUIState(), setupGuideSettingsDismissed: false }
+  })
+  const ui = createWebUiApi()
+  await ui.get()
+
+  let acknowledgeSave!: () => void
+  runtime.call.mockReturnValueOnce(
+    new Promise<void>((resolve) => {
+      acknowledgeSave = resolve
+    })
+  )
+  const saving = ui.setWithAck!({ setupGuideSettingsDismissed: true })
+
+  let rejectRead!: (error: Error) => void
+  runtime.call.mockReturnValueOnce(
+    new Promise((_resolve, reject) => {
+      rejectRead = reject
+    })
+  )
+  const reading = createWebUiApi().get()
+
+  acknowledgeSave()
+  await saving
+  rejectRead(new Error('Offline'))
+
+  expect((await reading).setupGuideSettingsDismissed).toBe(true)
+  expect(readLocalWebUIState().setupGuideSettingsDismissed).toBe(true)
+  expect(await createWebUiApi().get()).toMatchObject({ setupGuideSettingsDismissed: true })
+})
+
 it('preserves checklist state refreshed by a feature interaction before an older acknowledgement', async () => {
   const hostState = { ...getDefaultUIState(), setupGuideSettingsDismissed: true }
   runtime.call.mockResolvedValueOnce({ ui: hostState })
